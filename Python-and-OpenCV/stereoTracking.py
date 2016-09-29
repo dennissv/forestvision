@@ -27,6 +27,7 @@ class stereoTracking():
         self.camera_matrix = np.asarray(data['camera_matrix'],dtype='float64')
         self.dist = np.asarray([data['dist_coeff']],dtype='float64')
         self.mtx = np.asarray(data['mtx'],dtype='float64')
+        self.beeCameraK = [[0.751683, 0, 0.499852], [0, 1.00224, 0.490084], [0, 0, 1]]
         
     def rbgSplitter(self):
         '''Delar upp RBG bilder till tre enskilda bilder (left,mid,right).
