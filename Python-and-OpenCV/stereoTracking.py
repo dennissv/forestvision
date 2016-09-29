@@ -12,10 +12,10 @@ import glob
 import os
 
 class stereoTracking():
-    '''
-    To Do:
+    '''To Do:
     Funktioner att implementera:
-    - def saveMatchImg: Spara en bild av de slutgiltiga matchningarna för varje tidpunkt.'''
+    - def saveMatchImg: Spara en bild av de slutgiltiga matchningarna för varje tidpunkt.
+    - def plotTrajectory: Plotta trajectory, gärna med bilder av matchningarna på sidan.'''
     
     def __init__(self):
         self.u = 3.75e-06 #Pixel size. From documentation.
@@ -72,14 +72,20 @@ class stereoTracking():
         Anmärkningar: Tror inte denna behöver ändras.'''
         t0 = str(timepoint)
         t1 = str(timepoint+1)
+        t2 = str(timepoint+2)
+        t3 = str(timepoint+3)
         while len(t0) < 4:
             t0 = '0'+t0
         while len(t1) < 4:
             t1 = '0'+t1
+        while len(t2) < 4:
+            t2 = '0'+t2
+        while len(t3) < 4:
+            t3 = '0'+t3
         lIP = cv2.imread(glob.glob('*'+t0+'-left.png')[0],0)
-        rIP = cv2.imread(glob.glob('*'+t0+'-right.png')[0],0)
-        lIC = cv2.imread(glob.glob('*'+t1+'-left.png')[0],0)
-        rIC = cv2.imread(glob.glob('*'+t1+'-right.png')[0],0)
+        rIP = cv2.imread(glob.glob('*'+t1+'-left.png')[0],0)
+        lIC = cv2.imread(glob.glob('*'+t2+'-left.png')[0],0)
+        rIC = cv2.imread(glob.glob('*'+t3+'-left.png')[0],0)
         orb = cv2.ORB_create()
         kp1, des1 = orb.detectAndCompute(lIP,None)
         kp2, des2 = orb.detectAndCompute(rIP,None)
@@ -108,7 +114,7 @@ class stereoTracking():
             v1x = np.arctan(self.f/xl)
             X = np.tan(np.pi/2-v1x)*Z
             v1y = np.arctan(self.f/yl)
-            Y = np.tan(np.pi/2-v1y)*Z
+            Y = np.tan(np.pi/2-v1y)*Z #Alternativt: Y = (yl*Z)/self.f
             temp = []
             temp.append(X)
             temp.append(Y)
@@ -129,9 +135,8 @@ class stereoTracking():
         - Kan man få en felmarginal?'''
         newPosition = oldPosition+t
         return newPosition
-    
-    #Methods
-    def multiMatch(self,des1,des2,des3,des4,kp1,kp2,kp3,kp4,tp):
+
+    def multiMatchFundamental(self,des1,des2,des3,des4,kp1,kp2,kp3,kp4,tp):
         '''Tar bort de features som inte är med på alla bilder (t0 och t1).
         Input: Descriptors och keypoints för alla bilder.
         Output: Numpy arrays med x, y koordinater för de features som är med
@@ -146,90 +151,155 @@ class stereoTracking():
         bf  = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         matchest0 = bf.match(des1,des2)
         matchest1 = bf.match(des3,des4)
-        tmpt0, tmpt1, ttk1, ttk2, ttk3, ttk4, tk1, tk2, tk3, tk4, mD0, mD1 = [],[],[],[],[],[],[],[],[],[],[],[]
-        matchest0 = sorted(matchest0, key = lambda x:x.distance)
-        matchest1 = sorted(matchest1, key = lambda x:x.distance)
-        x,y,c = 0,0,0
-        while x < 20:
-            tmpt0.append(matchest0[c])
-            x = matchest0[c].distance
-            c += 1
+        tp1,tp2,tp3,tp4 = [],[],[],[]
+        firstKpMatches1,firstKpMatches2,firstKpMatches3,firstKpMatches4 = [],[],[],[]
+        firstDesMatches1,firstDesMatches2,firstDesMatches3,firstDesMatches4 = [],[],[],[]
+        for m in matchest0:
+            firstKpMatches1.append(kp1[m.queryIdx])
+            firstDesMatches1.append(des1[m.queryIdx])
+            tp1.append(kp1[m.queryIdx].pt)
+            firstKpMatches2.append(kp2[m.trainIdx])
+            firstDesMatches2.append(des2[m.trainIdx])
+            tp2.append(kp2[m.trainIdx].pt)
+        for n in matchest1:
+            firstKpMatches3.append(kp3[n.queryIdx])
+            firstDesMatches3.append(des3[n.queryIdx])
+            tp3.append(kp3[n.queryIdx].pt)
+            firstKpMatches4.append(kp4[n.trainIdx])
+            firstDesMatches4.append(des4[n.trainIdx])
+            tp4.append(kp4[n.trainIdx].pt)
+        F1, mask1 = cv2.findFundamentalMat(np.float32(tp1),np.float32(tp2),cv2.RANSAC,2,0.999)
+        F2, mask2 = cv2.findFundamentalMat(np.float32(tp3),np.float32(tp4),cv2.RANSAC,2,0.999)
+        maskedKp1,maskedKp2,maskedKp3,maskedKp4,maskedDes1,maskedDes2,maskedDes3,maskedDes4 = [],[],[],[],[],[],[],[]
         c = 0
-        while y < 20:
-            tmpt1.append(matchest1[c])
-            y = matchest1[c].distance
-            c += 1
-        for m in tmpt0:
-            mD0.append(des1[m.queryIdx])
-            ttk1.append(kp1[m.queryIdx])
-            ttk2.append(kp2[m.trainIdx])
-        for n in tmpt1:
-            mD1.append(des3[n.queryIdx])
-            ttk3.append(kp3[n.queryIdx])
-            ttk4.append(kp4[n.trainIdx])
-        mD0 = np.uint8(mD0)
-        mD1 = np.uint8(mD1)
-        mMatch = bf.match(mD0,mD1)
-        for m in mMatch:
-            tk1.append(ttk1[m.queryIdx].pt)
-            tk2.append(ttk2[m.queryIdx].pt)
-            tk3.append(ttk3[m.trainIdx].pt)
-            tk4.append(ttk4[m.trainIdx].pt)
-        tk1,tk2,tk3,tk4 = np.float32(tk1),np.float32(tk2),np.float32(tk3),np.float32(tk4)
-#        self.whatever(ttk1,ttk3,tk1,tk3,mD0,mD1,tp)
-        return tk1,tk2,tk3,tk4
-    
-    def whatever(self,kp1,kp3,pts1,pts3,md1,md3,tp):
-        F, mask = cv2.findFundamentalMat(pts1,pts3,cv2.RANSAC)
-        c = 0
-        fkp1,fkp3,fmd1,fmd3 = [],[],[],[]
-        for m in mask:
+        for m in mask1:
             if m == 1:
-                fkp1.append(kp1[c])
-                fkp3.append(kp3[c])
-                fmd1.append(md1[c])
-                fmd3.append(md3[c])
-        bf  = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        fmatches = bf.match(md1,md3)
-        print len(fmatches)
-        print len(fkp1),len(fkp3),len(fmd1),len(fmd3)
-        ci = cv2.imread(glob.glob('*'+str(tp)+'-left.png')[0],0)
-        ni = cv2.imread(glob.glob('*'+str(tp+1)+'-left.png')[0],0)
-        matchedImage = cv2.drawMatches(ci,fkp1,ni,fkp3,fmatches,None,flags=2)
-        cv2.imwrite('finalMatches-'+str(tp)+'.png',matchedImage)
-        
-    def selectInliers(self,pts1,pts2,pts3,pts4):
-        '''Använder RANSAC för att ta bort outliers.
-        Input: Numpy arrays med x, y koordinater för alla matchade features.
-        Output: Numpy arrays med bara inlier koordinater.
-        Anmärkning: Onödig? Verkar aldrig sortera bort nått?
-        To Do:
-        - Kontrollera om den behövs.
-        - Görs detta verkligen på x, y koordinaterna? Kanske görs bättre på XYZ?
-        - Snygga till koden.'''
-        F1, mask1 = cv2.findFundamentalMat(pts1,pts2,cv2.RANSAC)
-        F2, mask2 = cv2.findFundamentalMat(pts3,pts4,cv2.RANSAC)
-        c = 0
-        l = len(pts1)
-        t1,t2,t3,t4 = [],[],[],[]
-        while c < l:
-            tmp1,tmp2,tmp3,tmp4 = [],[],[],[]
-            if mask1[c][0] == 1 and mask2[c][0] == 1:
-                for m in pts1[c]:
-                    tmp1.append(m)
-                for m in pts2[c]:
-                    tmp2.append(m)
-                for m in pts3[c]:
-                    tmp3.append(m)
-                for m in pts4[c]:
-                    tmp4.append(m)
-                t1.append(tmp1)
-                t2.append(tmp2)
-                t3.append(tmp3)
-                t4.append(tmp4)
+                maskedKp1.append(firstKpMatches1[c])
+                maskedDes1.append(firstDesMatches1[c])
+                maskedKp2.append(firstKpMatches2[c])
+                maskedDes2.append(firstDesMatches2[c])
             c += 1
-        t1 = np.float32(t1)
-        t2 = np.float32(t2)
-        t3 = np.float32(t3)
-        t4 = np.float32(t4)
-        return t1,t2,t3,t4
+        c = 0
+        for n in mask2:
+            if n == 1:
+                maskedKp3.append(firstKpMatches3[c])
+                maskedDes3.append(firstDesMatches3[c])
+                maskedKp4.append(firstKpMatches4[c])
+                maskedDes4.append(firstDesMatches4[c])
+            c += 1
+        mMatches = bf.match(np.uint8(maskedDes1),np.uint8(maskedDes3))
+        spt1,spt2,spt3,spt4, secondKpMatches1,secondKpMatches3,secondDesMatches1,secondDesMatches3 = [],[],[],[],[],[],[],[]
+        for m in mMatches:
+            spt1.append(maskedKp1[m.queryIdx].pt)
+            spt2.append(maskedKp2[m.queryIdx].pt)
+            secondKpMatches1.append(maskedKp1[m.queryIdx])
+            secondDesMatches1.append(maskedDes1[m.queryIdx])
+            spt3.append(maskedKp3[m.trainIdx].pt)
+            spt4.append(maskedKp4[m.trainIdx].pt)
+            secondKpMatches3.append(maskedKp3[m.trainIdx])
+            secondDesMatches3.append(maskedDes3[m.trainIdx])
+        F3, mask3 = cv2.findFundamentalMat(np.float32(spt1),np.float32(spt3),cv2.RANSAC,2,0.999)
+        fpts1, fpts2, fpts3, fpts4, finalKp1,finalKp3,finalDes1,finalDes3 = [],[],[],[],[],[],[],[]
+        c = 0
+        for m in mask3:
+            if m == 1:
+                finalKp1.append(secondKpMatches1[c])
+                finalDes1.append(secondDesMatches1[c])
+                fpts1.append(spt1[c])
+                fpts2.append(spt2[c])
+                finalKp3.append(secondKpMatches3[c])
+                finalDes3.append(secondDesMatches3[c])
+                fpts3.append(spt3[c])
+                fpts4.append(spt4[c])
+            c += 1
+        finalDes1, finalDes3 = np.uint8(finalDes1), np.uint8(finalDes3)
+        imgMatch = bf.match(finalDes1,finalDes3)
+        ci = cv2.imread(glob.glob('*'+str(tp)+'-left.png')[0],0)
+        ni = cv2.imread(glob.glob('*'+str(tp+2)+'-left.png')[0],0)
+        matchedImage = cv2.drawMatches(ci,finalKp1,ni,finalKp3,imgMatch,None,flags=2)
+        cv2.imwrite('finalMatches-'+str(tp)+'.png',matchedImage)
+        return np.float32(fpts1),np.float32(fpts2),np.float32(fpts3),np.float32(fpts4)
+    
+    def multiMatchHomography(self,des1,des2,des3,des4,kp1,kp2,kp3,kp4,tp):
+        '''Tar bort de features som inte är med på alla bilder (t0 och t1).
+        Input: Descriptors och keypoints för alla bilder.
+        Output: Numpy arrays med x, y koordinater för de features som är med
+        i alla bilder.
+        Anmärkningar: Matchar först L med R för t0 och t1 och använder sedan
+        kvarvarande descriptors mellan Lt0 och Lt1. (Vänstra kameran ses som
+        center för världen.)
+        To do:
+        - Snyggare kod...
+        - Implementera version för alla tre kameror.
+        - Borde kalla på en funktion som gör bilder av den slutgiltiga matchningen.'''
+        bf  = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matchest0 = bf.match(des1,des2)
+        matchest1 = bf.match(des3,des4)
+        tp1,tp2,tp3,tp4 = [],[],[],[]
+        firstKpMatches1,firstKpMatches2,firstKpMatches3,firstKpMatches4 = [],[],[],[]
+        firstDesMatches1,firstDesMatches2,firstDesMatches3,firstDesMatches4 = [],[],[],[]
+        for m in matchest0:
+            firstKpMatches1.append(kp1[m.queryIdx])
+            firstDesMatches1.append(des1[m.queryIdx])
+            tp1.append(kp1[m.queryIdx].pt)
+            firstKpMatches2.append(kp2[m.trainIdx])
+            firstDesMatches2.append(des2[m.trainIdx])
+            tp2.append(kp2[m.trainIdx].pt)
+        for n in matchest1:
+            firstKpMatches3.append(kp3[n.queryIdx])
+            firstDesMatches3.append(des3[n.queryIdx])
+            tp3.append(kp3[n.queryIdx].pt)
+            firstKpMatches4.append(kp4[n.trainIdx])
+            firstDesMatches4.append(des4[n.trainIdx])
+            tp4.append(kp4[n.trainIdx].pt)
+        M1, mask1 = cv2.findHomography(np.float32(tp1), np.float32(tp2), cv2.RANSAC,3.0)
+        M2, mask2 = cv2.findHomography(np.float32(tp3), np.float32(tp4), cv2.RANSAC,3.0)
+        maskedKp1,maskedKp2,maskedKp3,maskedKp4,maskedDes1,maskedDes2,maskedDes3,maskedDes4 = [],[],[],[],[],[],[],[]
+        c = 0
+        for m in mask1:
+            if m == 1:
+                maskedKp1.append(firstKpMatches1[c])
+                maskedDes1.append(firstDesMatches1[c])
+                maskedKp2.append(firstKpMatches2[c])
+                maskedDes2.append(firstDesMatches2[c])
+            c += 1
+        c = 0
+        for n in mask2:
+            if n == 1:
+                maskedKp3.append(firstKpMatches3[c])
+                maskedDes3.append(firstDesMatches3[c])
+                maskedKp4.append(firstKpMatches4[c])
+                maskedDes4.append(firstDesMatches4[c])
+            c += 1
+        mMatches = bf.match(np.uint8(maskedDes1),np.uint8(maskedDes3))
+        spt1,spt2,spt3,spt4, secondKpMatches1,secondKpMatches3,secondDesMatches1,secondDesMatches3 = [],[],[],[],[],[],[],[]
+        for m in mMatches:
+            spt1.append(maskedKp1[m.queryIdx].pt)
+            spt2.append(maskedKp2[m.queryIdx].pt)
+            secondKpMatches1.append(maskedKp1[m.queryIdx])
+            secondDesMatches1.append(maskedDes1[m.queryIdx])
+            spt3.append(maskedKp3[m.trainIdx].pt)
+            spt4.append(maskedKp4[m.trainIdx].pt)
+            secondKpMatches3.append(maskedKp3[m.trainIdx])
+            secondDesMatches3.append(maskedDes3[m.trainIdx])
+        M3, mask3 = cv2.findHomography(np.float32(spt1), np.float32(spt3), cv2.RANSAC,3.0)
+        fpts1, fpts2, fpts3, fpts4, finalKp1,finalKp3,finalDes1,finalDes3 = [],[],[],[],[],[],[],[]
+        c = 0
+        for m in mask3:
+            if m == 1:
+                finalKp1.append(secondKpMatches1[c])
+                finalDes1.append(secondDesMatches1[c])
+                fpts1.append(spt1[c])
+                fpts2.append(spt2[c])
+                finalKp3.append(secondKpMatches3[c])
+                finalDes3.append(secondDesMatches3[c])
+                fpts3.append(spt3[c])
+                fpts4.append(spt4[c])
+            c += 1
+        finalDes1, finalDes3 = np.uint8(finalDes1), np.uint8(finalDes3)
+        imgMatch = bf.match(finalDes1,finalDes3)
+        ci = cv2.imread(glob.glob('*'+str(tp)+'-left.png')[0],0)
+        ni = cv2.imread(glob.glob('*'+str(tp+2)+'-left.png')[0],0)
+        matchedImage = cv2.drawMatches(ci,finalKp1,ni,finalKp3,imgMatch,None,flags=2)
+        cv2.imwrite('finalMatchesHomography-'+str(tp)+'.png',matchedImage)
+        return np.float32(fpts1),np.float32(fpts2),np.float32(fpts3),np.float32(fpts4)
