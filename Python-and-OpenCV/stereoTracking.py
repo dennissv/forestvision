@@ -83,10 +83,11 @@ class stereoTracking():
             t2 = '0'+t2
         while len(t3) < 4:
             t3 = '0'+t3
-        lIP = cv2.imread(glob.glob('*'+t0+'-left.png')[0],0)
-        rIP = cv2.imread(glob.glob('*'+t1+'-left.png')[0],0)
-        lIC = cv2.imread(glob.glob('*'+t2+'-left.png')[0],0)
-        rIC = cv2.imread(glob.glob('*'+t3+'-left.png')[0],0)
+        print t0
+        lIP = cv2.imread(glob.glob('*'+str(t0)+'*.pgm')[0],0)
+        rIP = cv2.imread(glob.glob('*'+str(t1)+'*.pgm')[0],0)
+        lIC = cv2.imread(glob.glob('*'+str(t2)+'*.pgm')[0],0)
+        rIC = cv2.imread(glob.glob('*'+str(t3)+'*.pgm')[0],0)
         orb = cv2.ORB_create()
         kp1, des1 = orb.detectAndCompute(lIP,None)
         kp2, des2 = orb.detectAndCompute(rIP,None)
@@ -109,33 +110,23 @@ class stereoTracking():
         length = len(ptsl)
         while c < length:
             s = ptsl[c][0] - ptsr[c][0]
-            xl = (ptsl[c][0]-526.5)*self.u
-            yl = -(ptsl[c][1]-353)*self.u
-            Z = (self.baseline*self.f)/(s*self.u*self.scaling)
-            v1x = np.arctan(self.f/xl)
-            X = np.tan(np.pi/2-v1x)*Z
-            v1y = np.arctan(self.f/yl)
-            Y = np.tan(np.pi/2-v1y)*Z #Alternativt: Y = (yl*Z)/self.f
-            temp = []
-            temp.append(X)
-            temp.append(Y)
-            temp.append(Z)
-            coordinates.append(temp)
-            np.shape(coordinates)
+            xl = (ptsl[c][0]-160)*self.u
+            yl = -(ptsl[c][1]-120)*self.u
+            Z = abs((self.baseline*self.f)/(s*self.u*self.scaling))
+            X = (xl*Z)/self.f
+            Y = (yl*Z)/self.f
+            coordinates.append([X,Y,Z])
             c += 1
-        return coordinates
+        return np.float32(coordinates)
 
     def updatePosition(self,oldPosition, R, t):
         '''Uppdaterar positionen för nuvarande tidpunkt.
         Input: Sist kända position (vektor), rotationsmatrisen och translations vektorn.
         Output: Nuvarande position.
-        Anmärkningar: Finns flera sätt att beräkna detta. Nuvarande implementation
-        är troligen en av de sämsta.
+        Anmärkningar: Finns flera sätt att beräkna detta.
         To do: 
-        - Implementera en mycket mer korrekt beräkningsmetod.
         - Kan man få en felmarginal?'''
-        newPosition = oldPosition+t
-        return newPosition
+        return np.dot(R,oldPosition)+t
 
     def multiMatchFundamental(self,des1,des2,des3,des4,kp1,kp2,kp3,kp4,tp):
         '''Tar bort de features som inte är med på alla bilder (t0 och t1).
@@ -215,92 +206,24 @@ class stereoTracking():
             c += 1
         finalDes1, finalDes3 = np.uint8(finalDes1), np.uint8(finalDes3)
         imgMatch = bf.match(finalDes1,finalDes3)
-        ci = cv2.imread(glob.glob('*'+str(tp)+'-left.png')[0],0)
-        ni = cv2.imread(glob.glob('*'+str(tp+2)+'-left.png')[0],0)
+        ci = cv2.imread(glob.glob('*'+str(tp)+'*.pgm')[0],0)
+        ni = cv2.imread(glob.glob('*'+str(tp+2)+'*pgm')[0],0)
         matchedImage = cv2.drawMatches(ci,finalKp1,ni,finalKp3,imgMatch,None,flags=2)
         cv2.imwrite('finalMatches-'+str(tp)+'.png',matchedImage)
         return np.float32(fpts1),np.float32(fpts2),np.float32(fpts3),np.float32(fpts4)
-    
-    def multiMatchHomography(self,des1,des2,des3,des4,kp1,kp2,kp3,kp4,tp):
-        '''Tar bort de features som inte är med på alla bilder (t0 och t1).
-        Input: Descriptors och keypoints för alla bilder.
-        Output: Numpy arrays med x, y koordinater för de features som är med
-        i alla bilder.
-        Anmärkningar: Matchar först L med R för t0 och t1 och använder sedan
-        kvarvarande descriptors mellan Lt0 och Lt1. (Vänstra kameran ses som
-        center för världen.)
-        To do:
-        - Snyggare kod...
-        - Implementera version för alla tre kameror.
-        - Borde kalla på en funktion som gör bilder av den slutgiltiga matchningen.'''
-        bf  = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matchest0 = bf.match(des1,des2)
-        matchest1 = bf.match(des3,des4)
-        tp1,tp2,tp3,tp4 = [],[],[],[]
-        firstKpMatches1,firstKpMatches2,firstKpMatches3,firstKpMatches4 = [],[],[],[]
-        firstDesMatches1,firstDesMatches2,firstDesMatches3,firstDesMatches4 = [],[],[],[]
-        for m in matchest0:
-            firstKpMatches1.append(kp1[m.queryIdx])
-            firstDesMatches1.append(des1[m.queryIdx])
-            tp1.append(kp1[m.queryIdx].pt)
-            firstKpMatches2.append(kp2[m.trainIdx])
-            firstDesMatches2.append(des2[m.trainIdx])
-            tp2.append(kp2[m.trainIdx].pt)
-        for n in matchest1:
-            firstKpMatches3.append(kp3[n.queryIdx])
-            firstDesMatches3.append(des3[n.queryIdx])
-            tp3.append(kp3[n.queryIdx].pt)
-            firstKpMatches4.append(kp4[n.trainIdx])
-            firstDesMatches4.append(des4[n.trainIdx])
-            tp4.append(kp4[n.trainIdx].pt)
-        M1, mask1 = cv2.findHomography(np.float32(tp1), np.float32(tp2), cv2.RANSAC,3.0)
-        M2, mask2 = cv2.findHomography(np.float32(tp3), np.float32(tp4), cv2.RANSAC,3.0)
-        maskedKp1,maskedKp2,maskedKp3,maskedKp4,maskedDes1,maskedDes2,maskedDes3,maskedDes4 = [],[],[],[],[],[],[],[]
+        
+    def imuSupport(self, c1, c2):
+        '''Tanken är att denna funktion ska använda data från tröghetsnavigeringen
+        för att ta bort felaktiga matchningar.
+        Input: Två punkmoln av matchningar.
+        Output: Två korrigerade punktmoln.
+        Anmärkningar: Väldigt temporär version, antar just nu att kameran
+        bara rör på sig horisontellt och tar bort punkter som rör sig vertikalt.'''
         c = 0
-        for m in mask1:
-            if m == 1:
-                maskedKp1.append(firstKpMatches1[c])
-                maskedDes1.append(firstDesMatches1[c])
-                maskedKp2.append(firstKpMatches2[c])
-                maskedDes2.append(firstDesMatches2[c])
+        nc1, nc2 = [], []
+        for i in c1:
+            if ((i[1]-c2[c][1]) < 0.3) and ((i[1]-c2[c][1]) > -0.3):
+                nc1.append(i.tolist())
+                nc2.append(c2[c])
             c += 1
-        c = 0
-        for n in mask2:
-            if n == 1:
-                maskedKp3.append(firstKpMatches3[c])
-                maskedDes3.append(firstDesMatches3[c])
-                maskedKp4.append(firstKpMatches4[c])
-                maskedDes4.append(firstDesMatches4[c])
-            c += 1
-        mMatches = bf.match(np.uint8(maskedDes1),np.uint8(maskedDes3))
-        spt1,spt2,spt3,spt4, secondKpMatches1,secondKpMatches3,secondDesMatches1,secondDesMatches3 = [],[],[],[],[],[],[],[]
-        for m in mMatches:
-            spt1.append(maskedKp1[m.queryIdx].pt)
-            spt2.append(maskedKp2[m.queryIdx].pt)
-            secondKpMatches1.append(maskedKp1[m.queryIdx])
-            secondDesMatches1.append(maskedDes1[m.queryIdx])
-            spt3.append(maskedKp3[m.trainIdx].pt)
-            spt4.append(maskedKp4[m.trainIdx].pt)
-            secondKpMatches3.append(maskedKp3[m.trainIdx])
-            secondDesMatches3.append(maskedDes3[m.trainIdx])
-        M3, mask3 = cv2.findHomography(np.float32(spt1), np.float32(spt3), cv2.RANSAC,3.0)
-        fpts1, fpts2, fpts3, fpts4, finalKp1,finalKp3,finalDes1,finalDes3 = [],[],[],[],[],[],[],[]
-        c = 0
-        for m in mask3:
-            if m == 1:
-                finalKp1.append(secondKpMatches1[c])
-                finalDes1.append(secondDesMatches1[c])
-                fpts1.append(spt1[c])
-                fpts2.append(spt2[c])
-                finalKp3.append(secondKpMatches3[c])
-                finalDes3.append(secondDesMatches3[c])
-                fpts3.append(spt3[c])
-                fpts4.append(spt4[c])
-            c += 1
-        finalDes1, finalDes3 = np.uint8(finalDes1), np.uint8(finalDes3)
-        imgMatch = bf.match(finalDes1,finalDes3)
-        ci = cv2.imread(glob.glob('*'+str(tp)+'-left.png')[0],0)
-        ni = cv2.imread(glob.glob('*'+str(tp+2)+'-left.png')[0],0)
-        matchedImage = cv2.drawMatches(ci,finalKp1,ni,finalKp3,imgMatch,None,flags=2)
-        cv2.imwrite('finalMatchesHomography-'+str(tp)+'.png',matchedImage)
-        return np.float32(fpts1),np.float32(fpts2),np.float32(fpts3),np.float32(fpts4)
+        return np.float32(nc1), np.float32(nc2)
