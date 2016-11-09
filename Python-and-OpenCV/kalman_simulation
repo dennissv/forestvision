@@ -1,0 +1,99 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov 08 11:09:26 2016
+
+@author: Dennis
+
+Generates random data and applies an unscented Kalman filter.
+For testing purposes.
+
+***
+
+Paramaters to work with:
+GPS coordinates
+Camera positions
+Rotations from camera and INS
+Velocities East / North
+
+"""
+
+import numpy as np
+import pylab as pl
+
+from pykalman import KalmanFilter
+
+rnd = np.random.RandomState(0)
+
+#Generate noisy data
+n_timesteps = 300
+
+
+
+def gps_Course(high, error, number):
+    x = np.linspace(0, high, number)
+    course = []
+    for i in x:
+        course.append(i+np.random.uniform(-error,error,1)[0])
+    return np.float64(course)
+
+def euler_Angles(error, number, divide):
+    p = np.random.uniform(-error,error,number)
+    angle = []
+    current = np.pi/divide
+    for c in range(len(p)):
+            current = current+p[c]
+            angle.append(current)
+    return angle
+
+#Generate values
+#pitch = euler_Angles(0.001,300,8)
+yaw = euler_Angles(0.1,300,4)
+#roll = euler_Angles(0.001,300,1)
+pitch = np.random.uniform(-0.001,0.001,300)
+#yaw = np.random.uniform(np.pi/4-0.001,np.pi/4+0.001,300)
+#roll = np.random.uniform(np.pi-0.001,np.pi+0.001,300)
+gps_course_x = gps_Course(100,5,300)
+gps_course_y = gps_Course(100,5,300)
+velocity_x = np.random.uniform(0.3303,0.3363,300)
+velocity_y = np.random.uniform(0.3303,0.3363,300)
+combined_x = np.stack((gps_course_x,velocity_x)).T
+combined_y = np.stack((gps_course_y,velocity_y)).T
+
+#Pitch, yaw, roll and velocity test
+x, y, z, v = [],[],[],[]
+for c in range(len(pitch)):
+    velocity = np.sqrt(velocity_x[c]**2+velocity_y[c]**2)
+    v.append(velocity)
+    if c == 0:
+        x.append(np.sin(yaw[c])*np.cos(pitch[c])*velocity)
+        y.append(np.sin(yaw[c])*np.sin(pitch[c])*velocity)
+        z.append(np.cos(yaw[c])*velocity)
+    else:
+        x.append(np.sin(yaw[c])*np.cos(pitch[c])*velocity+x[c-1])
+        y.append(np.sin(yaw[c])*np.sin(pitch[c])*velocity+y[c-1])
+        z.append(np.cos(yaw[c])*velocity+z[c-1])
+
+#Initiate Kalman filter
+kf = KalmanFilter(transition_matrices=np.array([[1,1,1], [0,1,1],[0,0,1]]),
+                  transition_covariance=0.01 * np.eye(3),n_dim_obs=1)
+states_pred_x = kf.em(gps_course_x).smooth(gps_course_x)[0]
+
+kf = KalmanFilter(transition_matrices=np.array([[1,1,1], [0,1,1],[0,0,1]]),
+                  transition_covariance=0.01 * np.eye(3),n_dim_obs=1)
+states_pred_y = kf.em(gps_course_y).smooth(gps_course_y)[0]
+
+kf = KalmanFilter(transition_matrices=np.array([[1,1,1], [0,1,1],[0,0,1]]),
+                  transition_covariance=0.01 * np.eye(3),n_dim_obs=2)
+combined_pred_x = kf.em(combined_x).smooth(combined_x)[0]
+
+kf = KalmanFilter(transition_matrices=np.array([[1,1,1], [0,1,1],[0,0,1]]),
+                  transition_covariance=0.01 * np.eye(3),n_dim_obs=2)
+combined_pred_y = kf.em(combined_y).smooth(combined_y)[0]
+
+#Plot
+pl.figure(figsize=(15,15))
+gps = pl.scatter(gps_course_x, gps_course_y, marker = 'x', color='r', label='GPS Course')
+gps_filter = pl.plot(states_pred_x[:,0], states_pred_y[:,0], marker='o', color='b', label='Filtered GPS Course')
+combined_filter = pl.plot(combined_pred_x[:,0], combined_pred_y[:,0], marker='o', color='g', label='Combined filter')
+xy = pl.plot(x,z,marker='o',color='y',label='xy')
+pl.show()
